@@ -15,8 +15,9 @@ function Main() {
     const [responses] = useState<string[]>([]);
     const [response, setResponse] = useState('');
     const [messages] = useState<Message[]>([]);
-    const [email, setEmail] = useState<any>(null);
+    const [email, setEmail] = useState<OutlookEmailItem>(null);
     const [error, setError] = useState<string | null>(null);
+    const [language, setLanguage] = useState('English');
 
     const fetchSelectedEmail = async () => {
         try {
@@ -84,6 +85,18 @@ function Main() {
         }
     }
 
+    // summarize email
+    async function summarizeEmail(): Promise<void> {
+        setPrompt(`In ${language}, summarize following email:\n"""\nSubject:${email.subject}\nFrom:${email.sender}\nTo:${email.recipient}\nReceived:${email.receivedTime.toString()}\n${email.body}\n"""`)
+        await askGpt();
+    }
+
+    // write a reply
+    async function replyEmail(): Promise<void> {
+        setPrompt(`Write a reply for email:\n"""\nSubject:${email.subject}\nFrom:${email.sender}\nTo:${email.recipient}\nReceived:${email.receivedTime.toString()}\n${email.body}\n"""`)
+        await askGpt();
+    }
+
     // Fetch the models when the component mounts
     useEffect(() => {
         async function fetchModels(): Promise<void> {
@@ -93,6 +106,9 @@ function Main() {
         }
 
         fetchModels().then(); // Call the async function
+
+        const interval = setInterval(async () => fetchSelectedEmail(), 1000); // Fetch every second
+        return () => clearInterval(interval); // Cleanup on unmount
     }, []); // Empty dependency array ensures it only runs once
 
     return (
@@ -115,7 +131,11 @@ function Main() {
                     </option>
                 ))}
             </select><br/>
+            <label className="form-label">Language: </label>
+            <input value={language} onChange={e => setLanguage(e.target.value)}/><br/>
             <button onClick={askGpt} disabled={prompt.length === 0}>Chat</button>
+            <button onClick={summarizeEmail}>Summarize email</button>
+            <button onClick={replyEmail}>Write a reply</button>
             <div>
                 <h1>Read Selected Outlook Email</h1>
                 <button onClick={fetchSelectedEmail}>Fetch Email</button>
