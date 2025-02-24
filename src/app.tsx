@@ -1,6 +1,7 @@
 import {createRoot} from 'react-dom/client';
 import {useEffect, useState} from 'react';
 import ollama, {Message} from "ollama";
+import {OutlookEmailItem} from "./models/OutlookEmailItem"
 
 const root = createRoot(document.body);
 root.render(
@@ -14,14 +15,35 @@ function Main() {
     const [responses] = useState<string[]>([]);
     const [response, setResponse] = useState('');
     const [messages] = useState<Message[]>([]);
+    const [email, setEmail] = useState<any>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    const fetchSelectedEmail = async () => {
+        try {
+            const result = await (window as any).electronAPI.getSelectedEmail() as OutlookEmailItem;
+            console.log(result);
+            if (result.error) {
+                setError(result.error);
+            } else {
+                setEmail(result);
+                setError(null);
+            }
+        } catch (err) {
+            setError("Failed to fetch email");
+        }
+    };
 
     // get the list of models that is available
     async function getModels(): Promise<string[]> {
-        const models = (await ollama.list()).models;
         const result: string[] = [];
-        models.forEach((model) => {
-            result.push(model.name)
-        });
+        try {
+            const models = (await ollama.list()).models;
+            models.forEach((model) => {
+                result.push(model.name)
+            });
+        } catch (e) {
+            console.log(e);
+        }
         return result;
     }
 
@@ -94,6 +116,21 @@ function Main() {
                 ))}
             </select><br/>
             <button onClick={askGpt} disabled={prompt.length === 0}>Chat</button>
+            <div>
+                <h1>Read Selected Outlook Email</h1>
+                <button onClick={fetchSelectedEmail}>Fetch Email</button>
+                {error && <p style={{color: "red"}}>{error}</p>}
+                {email && (
+                    <div>
+                        <h2>{email.subject}</h2>
+                        <p><b>From:</b> {email.sender}</p>
+                        <p><b>To:</b> {email.recipient}</p>
+                        <p><b>Received:</b> {email.receivedTime.toString()}</p>
+                        <p><b>Body:</b></p>
+                        <pre>{email.body}</pre>
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

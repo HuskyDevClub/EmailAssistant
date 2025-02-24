@@ -50,6 +50,7 @@
     "electron-squirrel-startup": "^1.0.1",
     "ollama": "^0.5.12",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "winax": "^3.6.1"
   }
 }
