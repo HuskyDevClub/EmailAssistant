@@ -3,6 +3,8 @@ import React, {useEffect, useState} from 'react';
 import {Message} from "ollama";
 import {OutlookEmailItem} from "./models/OutlookEmailItem"
 import {OllamaController} from "./controllers/OllamaController"
+import {SpamDetectionNode} from "./nodes/SpamDetectionNode"
+import {ReasoningNode} from "./nodes/ReasoningNode";
 
 const root = createRoot(document.body);
 root.render(
@@ -19,11 +21,12 @@ function Main() {
     const [email, setEmail] = useState<OutlookEmailItem>(null);
     const [error, setError] = useState<string | null>(null);
     const [language, setLanguage] = useState('English');
+    const [attachments, setAttachments] = useState<File[]>([]);
 
     const openNewWindow = () => {
         const newWin = window.open("", "_blank", "width=400,height=300");
         if (newWin) {
-            newWin.document.write(`<html><head><title id="title">${email.subject}</title></head><body>`);
+            newWin.document.write(`<html lang="en"><head><title id="title">${email.subject}</title></head><body>`);
             newWin.document.write(`<h2>${email.subject}</h2>`);
             newWin.document.write(`<p><b>To:</b> ${email.recipient}</p>`);
             newWin.document.write(`<p><b>Received:</b> ${email.receivedTime.toString()}</p>`);
@@ -74,12 +77,40 @@ function Main() {
 
     // summarize email
     async function summarizeEmail(): Promise<void> {
-        await chat(`In ${language}, summarize following email:\n"""\nSubject:${email.subject}\nFrom:${email.sender}\nTo:${email.recipient}\nReceived:${email.receivedTime.toString()}\n${email.body}\n"""`, `Summarize email: "${email.subject}"`);
+        ReasoningNode.model = selectedModel;
+        const thePrompt = email ? emailToString(email) : prompt;
+        const result = await (new SpamDetectionNode()).process(thePrompt, structuredClone(messages));
+        const threshold = 60
+        if (result.result > threshold) {
+            console.log(`Warning: this seems to be a spam or advertisement email (${result.result}/100):`);
+            console.log(result.reason)
+            await chat(`Since this can be a spam or advertisement email, warn user on this on following email:\n"""\n${thePrompt}\n"""\n`, `Write a reply for: "${thePrompt}"`);
+        } else {
+            console.log(`This emails seem to be safe (${result.result}/100):`);
+            console.log(result.reason)
+            await chat(`In ${language}, summarize following email:\n"""\n${emailToString(email)}\n"""`, `Summarize email: "${email.subject}"`);
+        }
     }
 
     // write a reply
     async function replyEmail(): Promise<void> {
-        await chat(`Write a reply for email:\n"""\nSubject:${email.subject}\nFrom:${email.sender}\nTo:${email.recipient}\nReceived:${email.receivedTime.toString()}\n${email.body}\n"""`, `Write a reply for: "${email.subject}"`)
+        ReasoningNode.model = selectedModel;
+        const thePrompt = email ? emailToString(email) : prompt;
+        const result = await (new SpamDetectionNode()).process(thePrompt, structuredClone(messages));
+        const threshold = 60
+        if (result.result > threshold) {
+            console.log(`Warning: this seems to be a spam or advertisement email (${result.result}/100):`);
+            console.log(result.reason)
+            await chat(`Since this can be a spam or advertisement email, warn user on this on following email:\n"""\n${thePrompt}\n"""\n`, `Write a reply for: "${thePrompt}"`);
+        } else {
+            console.log(`This emails seem to be safe (${result.result}/100):`);
+            console.log(result.reason)
+            await chat(`Write a reply for email:\n"""\n${thePrompt}\n"""`, `Write a reply for: "${thePrompt}"`)
+        }
+    }
+
+    function emailToString(theEmail: OutlookEmailItem): string {
+        return `Subject:${theEmail.subject}\nFrom:${theEmail.sender}\nTo:${theEmail.recipient}\nReceived:${theEmail.receivedTime.toString()}\n${theEmail.body}\n`
     }
 
     async function chat(thePrompt: string, question: string = null): Promise<void> {
@@ -87,12 +118,22 @@ function Main() {
         responses.push("User:")
         responses.push(question == null ? thePrompt : question);
         responses.push(`AI (${selectedModel}):`)
-        responses.push(await OllamaController.chat(selectedModel, messages, setResponse))
+        responses.push(await OllamaController.chatAsync(selectedModel, messages, setResponse))
+        setAttachments([])
     }
 
     async function clearHistory(): Promise<void> {
         setResponses([]);
         setMessages([]);
+    }
+
+    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        if (event.target.files) {
+            setAttachments(Array.from(event.target.files));
+        }
+    };
+
+    async function testNode(): Promise<void> {
     }
 
     // Fetch the models when the component mounts
@@ -134,12 +175,17 @@ function Main() {
             <button onClick={askGpt} disabled={prompt.length === 0}>Chat</button>
             <button onClick={summarizeEmail}>Summarize email</button>
             <button onClick={replyEmail}>Write a reply</button>
+            <button onClick={testNode}>Test a Node</button>
             <button onClick={clearHistory}>Clear</button>
+            <br/>
+            <input type="file" id="fileInput" multiple onChange={handleFileChange} className="hidden"/>
             <div>
-                <p>Read Selected Outlook Email:</p>
                 {error && <p style={{color: "red"}}>{error}</p>}
-                {email && (<p>{email.subject}</p>)}
-                <button onClick={openNewWindow}>Open New Window</button>
+                {email && (<div>
+                    <p>Read Selected Outlook Email:</p>
+                    <p>{email.subject}</p>
+                    <button onClick={openNewWindow}>Open New Window</button>
+                </div>)}
             </div>
         </div>
     );

@@ -1,11 +1,11 @@
 import {Message, Ollama} from "ollama";
 
 // ollama connection
-const ollama = new Ollama({host: 'http://192.168.50.175:11434'})
+const ollama = new Ollama({host: 'http://127.0.0.1:11434'})
 
 export class OllamaController {
     // ask gpt the question
-    public static async chat(model: string, messages: Message[], setResponse: (response: string) => void): Promise<string> {
+    public static async chatAsync(model: string, messages: Message[], setResponse: (response: string) => void): Promise<string> {
         let answer = "";
         try {
             const response = await ollama.chat({
@@ -24,6 +24,24 @@ export class OllamaController {
             });
             setResponse("");
             return answer;
+        } catch (error) {
+            console.error("Error in sending ask request:", error);
+        }
+    }
+
+    // ask gpt the question
+    public static async chat(model: string, messages: Message[]): Promise<string> {
+        try {
+            const response = await ollama.chat({
+                model: model,
+                messages: messages
+            })
+            // save response
+            messages.push({
+                role: "assistant",
+                content: response.message.content,
+            });
+            return response.message.content;
         } catch (error) {
             console.error("Error in sending ask request:", error);
         }
