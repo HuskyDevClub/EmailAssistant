@@ -1,4 +1,7 @@
-import ollama, {Message} from "ollama";
+import {Message, Ollama} from "ollama";
+
+// ollama connection
+const ollama = new Ollama({host: 'http://192.168.50.175:11434'})
 
 export class OllamaController {
     // ask gpt the question

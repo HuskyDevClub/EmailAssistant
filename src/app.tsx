@@ -1,5 +1,5 @@
 import {createRoot} from 'react-dom/client';
-import {useEffect, useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {Message} from "ollama";
 import {OutlookEmailItem} from "./models/OutlookEmailItem"
 import {OllamaController} from "./controllers/OllamaController"
@@ -19,6 +19,34 @@ function Main() {
     const [email, setEmail] = useState<OutlookEmailItem>(null);
     const [error, setError] = useState<string | null>(null);
     const [language, setLanguage] = useState('English');
+
+    const openNewWindow = () => {
+        const newWin = window.open("", "_blank", "width=400,height=300");
+        if (newWin) {
+            newWin.document.write(`<html><head><title id="title">${email.subject}</title></head><body>`);
+            newWin.document.write(`<h2>${email.subject}</h2>`);
+            newWin.document.write(`<p><b>To:</b> ${email.recipient}</p>`);
+            newWin.document.write(`<p><b>Received:</b> ${email.receivedTime.toString()}</p>`);
+            newWin.document.write("<p><b>Body:</b></p>");
+            newWin.document.write(`<pre id="ebody">${email.body}</pre>`);
+            newWin.document.write("</body></html>");
+            newWin.document.close();
+            const closeButton = newWin.document.getElementById("close-btn");
+            if (closeButton) {
+                closeButton.addEventListener("click", () => {
+                    newWin.close();
+                });
+            }
+
+            const updateEmail = () => {
+                newWin.document.getElementById("title").innerText = email.subject;
+            }
+
+            return () => {
+                if (newWin && !newWin.closed) newWin.close();
+            }
+        }
+    };
 
     const fetchSelectedEmail = async () => {
         try {
@@ -108,19 +136,10 @@ function Main() {
             <button onClick={replyEmail}>Write a reply</button>
             <button onClick={clearHistory}>Clear</button>
             <div>
-                <h1>Read Selected Outlook Email</h1>
-                <button onClick={fetchSelectedEmail}>Fetch Email</button>
+                <p>Read Selected Outlook Email:</p>
                 {error && <p style={{color: "red"}}>{error}</p>}
-                {email && (
-                    <div>
-                        <h2>{email.subject}</h2>
-                        <p><b>From:</b> {email.sender}</p>
-                        <p><b>To:</b> {email.recipient}</p>
-                        <p><b>Received:</b> {email.receivedTime.toString()}</p>
-                        <p><b>Body:</b></p>
-                        <pre>{email.body}</pre>
-                    </div>
-                )}
+                {email && (<p>{email.subject}</p>)}
+                <button onClick={openNewWindow}>Open New Window</button>
             </div>
         </div>
     );
