@@ -3,8 +3,6 @@ import React, {useEffect, useState} from 'react';
 import {Message} from "ollama";
 import {OutlookEmailItem} from "./models/OutlookEmailItem"
 import {OllamaController} from "./controllers/OllamaController"
-import {SpamDetectionNode} from "./nodes/SpamDetectionNode"
-import {ReasoningNode} from "./nodes/ReasoningNode";
 
 const root = createRoot(document.body);
 root.render(
@@ -41,10 +39,6 @@ function Main() {
                 });
             }
 
-            const updateEmail = () => {
-                newWin.document.getElementById("title").innerText = email.subject;
-            }
-
             return () => {
                 if (newWin && !newWin.closed) newWin.close();
             }
@@ -77,36 +71,17 @@ function Main() {
 
     // summarize email
     async function summarizeEmail(): Promise<void> {
-        ReasoningNode.model = selectedModel;
-        const thePrompt = email ? emailToString(email) : prompt;
-        const result = await (new SpamDetectionNode()).process(thePrompt, structuredClone(messages));
-        const threshold = 60
-        if (result.result > threshold) {
-            console.log(`Warning: this seems to be a spam or advertisement email (${result.result}/100):`);
-            console.log(result.reason)
-            await chat(`Since this can be a spam or advertisement email, warn user on this on following email:\n"""\n${thePrompt}\n"""\n`, `Write a reply for: "${thePrompt}"`);
-        } else {
-            console.log(`This emails seem to be safe (${result.result}/100):`);
-            console.log(result.reason)
-            await chat(`In ${language}, summarize following email:\n"""\n${emailToString(email)}\n"""`, `Summarize email: "${email.subject}"`);
-        }
+        await chat(`In ${language}, summarize following email:\n"""\n${emailToString(email)}\n"""`, `Summarize email: "${email.subject}"`);
     }
 
     // write a reply
     async function replyEmail(): Promise<void> {
-        ReasoningNode.model = selectedModel;
-        const thePrompt = email ? emailToString(email) : prompt;
-        const result = await (new SpamDetectionNode()).process(thePrompt, structuredClone(messages));
-        const threshold = 60
-        if (result.result > threshold) {
-            console.log(`Warning: this seems to be a spam or advertisement email (${result.result}/100):`);
-            console.log(result.reason)
-            await chat(`Since this can be a spam or advertisement email, warn user on this on following email:\n"""\n${thePrompt}\n"""\n`, `Write a reply for: "${thePrompt}"`);
-        } else {
-            console.log(`This emails seem to be safe (${result.result}/100):`);
-            console.log(result.reason)
-            await chat(`Write a reply for email:\n"""\n${thePrompt}\n"""`, `Write a reply for: "${thePrompt}"`)
-        }
+        await chat(`Write a reply for email:\n"""\n${emailToString(email)}\n"""`, `Write a reply for: "${email.subject}"`)
+    }
+
+    // write a reply
+    async function isSpamEmail(): Promise<void> {
+        await chat(`In short, does this email look like a spam email:\n"""\n${emailToString(email)}\n"""`, `Is this spam: "${email.subject}"`)
     }
 
     function emailToString(theEmail: OutlookEmailItem): string {
@@ -132,9 +107,6 @@ function Main() {
             setAttachments(Array.from(event.target.files));
         }
     };
-
-    async function testNode(): Promise<void> {
-    }
 
     // Fetch the models when the component mounts
     useEffect(() => {
@@ -173,19 +145,17 @@ function Main() {
             <label className="form-label">Language: </label>
             <input value={language} onChange={e => setLanguage(e.target.value)}/><br/>
             <button onClick={askGpt} disabled={prompt.length === 0}>Chat</button>
+            <button onClick={isSpamEmail}>A spam email?</button>
             <button onClick={summarizeEmail}>Summarize email</button>
             <button onClick={replyEmail}>Write a reply</button>
-            <button onClick={testNode}>Test a Node</button>
             <button onClick={clearHistory}>Clear</button>
             <br/>
             <input type="file" id="fileInput" multiple onChange={handleFileChange} className="hidden"/>
             <div>
                 {error && <p style={{color: "red"}}>{error}</p>}
-                {email && (<div>
-                    <p>Read Selected Outlook Email:</p>
-                    <p>{email.subject}</p>
-                    <button onClick={openNewWindow}>Open New Window</button>
-                </div>)}
+                {email && <p>Read Selected Outlook Email: <strong>{email.subject}</strong>
+                    <button onClick={openNewWindow}>View</button>
+                </p>}
             </div>
         </div>
     );
