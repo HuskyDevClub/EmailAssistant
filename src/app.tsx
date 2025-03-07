@@ -2,7 +2,9 @@ import {createRoot} from 'react-dom/client';
 import React, {useEffect, useState} from 'react';
 import {Message} from "ollama";
 import {OutlookEmailItem} from "./models/OutlookEmailItem"
+import {TextFile} from "./models/Files"
 import {OllamaController} from "./controllers/OllamaController"
+import {ConfigController} from "./controllers/ConfigController"
 
 const root = createRoot(document.body);
 root.render(
@@ -18,7 +20,10 @@ function Main() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [email, setEmail] = useState<OutlookEmailItem>(null);
     const [error, setError] = useState<string | null>(null);
-    const [language, setLanguage] = useState('English');
+    const [userLanguage, setUserLanguage] = useState<string>('');
+    const [customInstruction, setCustomInstruction] = useState<string>('');
+    const [imageAttachments, setImageAttachments] = useState<string[]>();
+    const [textFileAttachments, setTextFileAttachments] = useState<TextFile[]>();
     const [attachments, setAttachments] = useState<File[]>([]);
 
     const openNewWindow = () => {
@@ -71,7 +76,7 @@ function Main() {
 
     // summarize email
     async function summarizeEmail(): Promise<void> {
-        await chat(`In ${language}, summarize following email:\n"""\n${emailToString(email)}\n"""`, `Summarize email: "${email.subject}"`);
+        await chat(`In ${userLanguage}, summarize following email:\n"""\n${emailToString(email)}\n"""`, `Summarize email: "${email.subject}"`);
     }
 
     // write a reply
@@ -88,8 +93,38 @@ function Main() {
         return `Subject:${theEmail.subject}\nFrom:${theEmail.sender}\nTo:${theEmail.recipient}\nReceived:${theEmail.receivedTime.toString()}\n${theEmail.body}\n`
     }
 
+    // Using FileReader API
+    function readWebPAsBase64(file: File): Promise<string> {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result.toString().split(',')[1]); // Get only the base64 part
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    }
+
+    function getTextAttachmentsInString(): string {
+        let result: string = "";
+        if (textFileAttachments) {
+            result = "Given file(s):\n"
+            for (let file of textFileAttachments) {
+                result += `"""\n###${file.path}\n${file.content}\n"""\n`
+            }
+        }
+        return result;
+    }
+
     async function chat(thePrompt: string, question: string = null): Promise<void> {
-        messages.push({role: "user", content: thePrompt} as Message);
+        const msg: Message = {
+            role: "user",
+            content: customInstruction ? `Given context:\n"""\n${customInstruction}\n"""\n${thePrompt}` : thePrompt
+        } as Message;
+        msg.content = `${getTextAttachmentsInString()}${msg.content}`
+        console.log(msg.content)
+        if (imageAttachments) {
+            msg.images = imageAttachments
+        }
+        messages.push(msg);
         responses.push("User:")
         responses.push(question == null ? thePrompt : question);
         responses.push(`AI (${selectedModel}):`)
@@ -102,11 +137,41 @@ function Main() {
         setMessages([]);
     }
 
-    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         if (event.target.files) {
-            setAttachments(Array.from(event.target.files));
+            let theImageAttachments: string[] = []
+            let theTextAttachments: TextFile[] = []
+            let theOtherAttachments: File [] = []
+            for (let file of event.target.files) {
+                if (file.type === 'image/webp' || file.type === 'image/png' || file.type === 'image/jpeg' || file.type === 'image/gif') {
+                    const base64 = await readWebPAsBase64(file);
+                    theImageAttachments.push(base64)
+                } else if (file.type === 'application/pdf') {
+                    theTextAttachments.push({path: file.path, content: file.path} as TextFile)
+                } else {
+                    theOtherAttachments.push(file)
+                }
+            }
+            setImageAttachments(theImageAttachments)
+            setTextFileAttachments(theTextAttachments)
+            setAttachments(theOtherAttachments);
+            console.log(theImageAttachments);
+            console.log(theTextAttachments);
+            console.log(theOtherAttachments)
         }
     };
+
+    // Add a separate useEffect for initialization tasks that should only run once
+    useEffect(() => {
+        async function initialize() {
+            ConfigController.init().then(() => {
+                setUserLanguage(ConfigController.VALUES.userData.language);
+                setCustomInstruction(ConfigController.VALUES.userData.customInstruction)
+            });
+        }
+
+        initialize().then();
+    }, []); // Empty dependency array ensures it only runs once
 
     // Fetch the models when the component mounts
     useEffect(() => {
@@ -116,11 +181,19 @@ function Main() {
             setSelectedModel(models[0])
         }
 
-        fetchModels().then(); // Call the async function
+        async function updateConfig(): Promise<void> {
+            ConfigController.VALUES.userData.language = userLanguage;
+            ConfigController.VALUES.userData.customInstruction = customInstruction
+            await ConfigController.save()
+        }
 
-        const interval = setInterval(async () => fetchSelectedEmail(), 1000); // Fetch every second
+        fetchModels().then(); // Call the async function
+        const interval = setInterval(async () => {
+            await updateConfig();
+            await fetchSelectedEmail();
+        }, 1000); // Fetch every second
         return () => clearInterval(interval); // Cleanup on unmount
-    }, []); // Empty dependency array ensures it only runs once
+    }, [userLanguage, customInstruction]); // Empty dependency array ensures it only runs once
 
     return (
         <div>
@@ -143,7 +216,7 @@ function Main() {
                 ))}
             </select><br/>
             <label className="form-label">Language: </label>
-            <input value={language} onChange={e => setLanguage(e.target.value)}/><br/>
+            <input value={userLanguage} onChange={e => setUserLanguage(e.target.value)}/><br/>
             <button onClick={askGpt} disabled={prompt.length === 0}>Chat</button>
             <button onClick={isSpamEmail}>A spam email?</button>
             <button onClick={summarizeEmail}>Summarize email</button>
@@ -151,6 +224,12 @@ function Main() {
             <button onClick={clearHistory}>Clear</button>
             <br/>
             <input type="file" id="fileInput" multiple onChange={handleFileChange} className="hidden"/>
+            <div>
+                <h4 className="form-label">Custom Instruction:</h4>
+                <textarea placeholder="Anything you would like your GPT Assistance to know" rows={5} cols={50}
+                          value={customInstruction}
+                          onChange={e => setCustomInstruction(e.target.value)}/><br/>
+            </div>
             <div>
                 {error && <p style={{color: "red"}}>{error}</p>}
                 {email && <p>Read Selected Outlook Email: <strong>{email.subject}</strong>
