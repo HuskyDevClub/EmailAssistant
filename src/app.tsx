@@ -5,7 +5,8 @@ import {OutlookEmailItem} from "./models/OutlookEmailItem"
 import {TextFile} from "./models/Files"
 import {OllamaController} from "./controllers/OllamaController"
 import {ConfigController} from "./controllers/ConfigController"
-
+import * as pdfjsLib from "pdfjs-dist";
+import "pdfjs-dist/build/pdf.worker.entry";
 const root = createRoot(document.body);
 root.render(
     <Main/>
@@ -103,16 +104,20 @@ function Main() {
         });
     }
 
+    
     function getTextAttachmentsInString(): string {
         let result: string = "";
         if (textFileAttachments) {
-            result = "Given file(s):\n"
+            result = "Given file(s):\n";
             for (let file of textFileAttachments) {
-                result += `"""\n###${file.path}\n${file.content}\n"""\n`
+                result += `"""\n### ${file.path}\n${file.content}\n"""\n`;
             }
         }
         return result;
     }
+    
+
+    
 
     async function chat(thePrompt: string, question: string = null): Promise<void> {
         const msg: Message = {
@@ -137,6 +142,38 @@ function Main() {
         setMessages([]);
     }
 
+    async function readPdfImagesWithLlama() {
+    if (!imageAttachments || imageAttachments.length === 0) {
+        alert("No images found from the PDF!");
+        return;
+    }
+    
+    
+    for (let imgPath of imageAttachments) {
+        await chat(`Extract text from this image: ${imgPath}`);
+    }
+}
+    async function readPdfAsText(file: File): Promise<string> {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = async function () {
+                const typedArray = new Uint8Array(reader.result as ArrayBuffer);
+                const pdf = await pdfjsLib.getDocument({ data: typedArray }).promise;
+                let text = "";
+
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const content = await page.getTextContent();
+                    const strings = content.items.map((item: any) => item.str);
+                    text += strings.join(" ") + "\n";
+                }
+
+                resolve(text);
+            };
+            reader.onerror = reject;
+            reader.readAsArrayBuffer(file);
+        });
+    }
     const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         if (event.target.files) {
             let theImageAttachments: string[] = []
@@ -145,13 +182,15 @@ function Main() {
             for (let file of event.target.files) {
                 if (file.type === 'image/webp' || file.type === 'image/png' || file.type === 'image/jpeg' || file.type === 'image/gif') {
                     const base64 = await readWebPAsBase64(file);
-                    theImageAttachments.push(base64)
+                    theImageAttachments.push(base64);
                 } else if (file.type === 'application/pdf') {
-                    theTextAttachments.push({path: file.path, content: file.path} as TextFile)
+                    const extractedText = await readPdfAsText(file); // Extract PDF content here
+                    theTextAttachments.push({ path: file.name, content: extractedText } as TextFile);
                 } else {
-                    theOtherAttachments.push(file)
+                    theOtherAttachments.push(file);
                 }
             }
+    
             setImageAttachments(theImageAttachments)
             setTextFileAttachments(theTextAttachments)
             setAttachments(theOtherAttachments);
