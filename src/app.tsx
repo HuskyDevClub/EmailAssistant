@@ -235,7 +235,12 @@ function Main() {
     }, [userLanguage, customInstruction]); // Empty dependency array ensures it only runs once
 
     return (
-        <div>
+        
+        <div >
+            <div class="glass-card">
+                <h2>Welcome to Smart Office!</h2>
+                <p>Your assistant is ready to help you manage your Outlook tasks efficiently.</p>
+            </div>
             <div hidden={responses.length === 0 && responses.length === 0}>
                 <h2>Response:</h2>
                 {responses.map((option, index) => (
@@ -254,6 +259,7 @@ function Main() {
                     </option>
                 ))}
             </select><br/>
+            
             <label className="form-label">Language: </label>
             <input value={userLanguage} onChange={e => setUserLanguage(e.target.value)}/><br/>
             <button onClick={askGpt} disabled={prompt.length === 0}>Chat</button>
