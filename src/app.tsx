@@ -7,6 +7,7 @@ import {OllamaController} from "./controllers/OllamaController"
 import {ConfigController} from "./controllers/ConfigController"
 import * as pdfjsLib from "pdfjs-dist";
 import "pdfjs-dist/build/pdf.worker.entry";
+
 const root = createRoot(document.body);
 root.render(
     <Main/>
@@ -25,6 +26,8 @@ function Main() {
     const [customInstruction, setCustomInstruction] = useState<string>('');
     const [imageAttachments, setImageAttachments] = useState<string[]>();
     const [textFileAttachments, setTextFileAttachments] = useState<TextFile[]>();
+    const [emailImageAttachments, setEmailImageAttachments] = useState<string[]>();
+    const [emailTextFileAttachments, setEmailTextFileAttachments] = useState<TextFile[]>();
     const [attachments, setAttachments] = useState<File[]>([]);
 
     const openNewWindow = () => {
@@ -45,23 +48,78 @@ function Main() {
                 });
             }
 
+            console.log(emailImageAttachments);
+            console.log(emailTextFileAttachments);
+
             return () => {
                 if (newWin && !newWin.closed) newWin.close();
             }
         }
     };
 
+    // Helper function to determine MIME type based on file extension
+    function getMimeType(filename: string): string {
+        const mimeTypes: Record<string, string> = {
+            '.pdf': 'application/pdf',
+            '.doc': 'application/msword',
+            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            '.xls': 'application/vnd.ms-excel',
+            '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            '.ppt': 'application/vnd.ms-powerpoint',
+            '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.gif': 'image/gif',
+            '.txt': 'text/plain',
+            '.csv': 'text/csv',
+            '.html': 'text/html',
+            '.zip': 'application/zip'
+            // Add more as needed
+        };
+
+        return mimeTypes[getFileExtension(filename)] || 'application/octet-stream';
+    }
+
+    function getFileExtension(path: string): string {
+        // Extract the part after the last dot
+        // If there's no dot or the dot is at the beginning of the basename, return empty string
+        return path.slice(((path.lastIndexOf(".") - 2) >>> 0) + 2);
+    }
+
     const fetchSelectedEmail = async () => {
         try {
-            const result = await (window as any).electronAPI.getSelectedEmail() as OutlookEmailItem;
+            const result: OutlookEmailItem = await (window as any).electronAPI.getSelectedEmail() as OutlookEmailItem;
             if (result.error) {
                 setError(result.error);
             } else {
+                // set email
                 setEmail(result);
+
+                // process attachments
+                let theImageAttachments: string[] = []
+                let theTextAttachments: TextFile[] = []
+                for (let p of result.attachments) {
+                    // Add filename property to make it more like a File object
+                    const file = new File([], p.split('/').pop() || 'file', {
+                        type: getMimeType(p)
+                    });
+                    if (file.type === 'image/webp' || file.type === 'image/png' || file.type === 'image/jpeg' || file.type === 'image/gif') {
+                        const base64 = await readWebPAsBase64(file);
+                        theImageAttachments.push(base64);
+                    } else if (file.type === 'application/pdf') {
+                        const extractedText = await readPdfFromLocalPath(p); // Extract PDF content here
+                        theTextAttachments.push({path: file.name, content: extractedText} as TextFile);
+                    }
+                }
+                setEmailImageAttachments(theImageAttachments)
+                setEmailTextFileAttachments(theTextAttachments)
+
+                // clear error
                 setError(null);
             }
         } catch (err) {
-            setError("Failed to fetch email");
+            setError(`Failed to fetch email:${err}`);
         }
     };
 
@@ -77,17 +135,17 @@ function Main() {
 
     // summarize email
     async function summarizeEmail(): Promise<void> {
-        await chat(`In ${userLanguage}, summarize following email:\n"""\n${emailToString(email)}\n"""`, `Summarize email: "${email.subject}"`);
+        await chatAboutEmail(`The content of the email:\n'''\n${emailToString(email)}\n'''\nIn ${userLanguage}, summarize the email.`, `Summarize email: "${email.subject}"`);
     }
 
     // write a reply
     async function replyEmail(): Promise<void> {
-        await chat(`Write a reply for email:\n"""\n${emailToString(email)}\n"""`, `Write a reply for: "${email.subject}"`)
+        await chatAboutEmail(`The content of the email:\n'''\n${emailToString(email)}\n'''\nWrite a reply for email.`, `Write a reply for: "${email.subject}"`)
     }
 
     // write a reply
     async function isSpamEmail(): Promise<void> {
-        await chat(`In short, does this email look like a spam email:\n"""\n${emailToString(email)}\n"""`, `Is this spam: "${email.subject}"`)
+        await chatAboutEmail(`The content of the email:\n'''\n${emailToString(email)}\n'''\nIn short, tell me that does this email look like a spam email?`, `Is this spam: "${email.subject}"`)
     }
 
     function emailToString(theEmail: OutlookEmailItem): string {
@@ -104,25 +162,33 @@ function Main() {
         });
     }
 
-    
+
     function getTextAttachmentsInString(): string {
         let result: string = "";
         if (textFileAttachments) {
             result = "Given file(s):\n";
             for (let file of textFileAttachments) {
-                result += `"""\n### ${file.path}\n${file.content}\n"""\n`;
+                result += `\n### ${file.path}:\n'''\n${file.content}\n'''\n`;
             }
         }
         return result;
     }
-    
 
-    
+    function getEmailTextAttachmentsInString(): string {
+        let result: string = "";
+        if (emailTextFileAttachments) {
+            result = "Given attached file(s) in the email:\n";
+            for (let file of emailTextFileAttachments) {
+                result += `\n### ${file.path}:\n'''\n${file.content}\n'''\n`;
+            }
+        }
+        return result;
+    }
 
     async function chat(thePrompt: string, question: string = null): Promise<void> {
         const msg: Message = {
             role: "user",
-            content: customInstruction ? `Given context:\n"""\n${customInstruction}\n"""\n${thePrompt}` : thePrompt
+            content: customInstruction ? `Given context:\n'''\n${customInstruction}\n'''\n${thePrompt}` : thePrompt
         } as Message;
         msg.content = `${getTextAttachmentsInString()}${msg.content}`
         console.log(msg.content)
@@ -137,28 +203,35 @@ function Main() {
         setAttachments([])
     }
 
+    async function chatAboutEmail(thePrompt: string, question: string = null): Promise<void> {
+        const msg: Message = {
+            role: "user",
+            content: customInstruction ? `Given context:\n'''\n${customInstruction}\n'''\n${thePrompt}` : thePrompt
+        } as Message;
+        msg.content = `${getEmailTextAttachmentsInString()}${msg.content}`
+        console.log(msg.content)
+        if (emailImageAttachments) {
+            msg.images = emailImageAttachments
+        }
+        messages.push(msg);
+        responses.push("User:")
+        responses.push(question == null ? thePrompt : question);
+        responses.push(`AI (${selectedModel}):`)
+        responses.push(await OllamaController.chatAsync(selectedModel, messages, setResponse))
+        setAttachments([])
+    }
+
     async function clearHistory(): Promise<void> {
         setResponses([]);
         setMessages([]);
     }
 
-    async function readPdfImagesWithLlama() {
-    if (!imageAttachments || imageAttachments.length === 0) {
-        alert("No images found from the PDF!");
-        return;
-    }
-    
-    
-    for (let imgPath of imageAttachments) {
-        await chat(`Extract text from this image: ${imgPath}`);
-    }
-}
     async function readPdfAsText(file: File): Promise<string> {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = async function () {
                 const typedArray = new Uint8Array(reader.result as ArrayBuffer);
-                const pdf = await pdfjsLib.getDocument({ data: typedArray }).promise;
+                const pdf = await pdfjsLib.getDocument({data: typedArray}).promise;
                 let text = "";
 
                 for (let i = 1; i <= pdf.numPages; i++) {
@@ -174,6 +247,45 @@ function Main() {
             reader.readAsArrayBuffer(file);
         });
     }
+
+    async function readPdfFromLocalPath(pdfPath: string): Promise<string> {
+        try {
+            // Read the PDF file into a buffer
+            const data = await (window as any).electronAPI.readFileRaw(pdfPath);
+
+            // Convert the buffer to Uint8Array which pdfjs requires
+            const uint8Array = new Uint8Array(data);
+
+            // Load the PDF document
+            const loadingTask = pdfjsLib.getDocument(uint8Array);
+            const pdfDocument = await loadingTask.promise;
+
+            // console.log(`PDF loaded. Number of pages: ${pdfDocument.numPages}`);
+
+            // Extract text from all pages
+            let fullText = '';
+
+            for (let pageNum = 1; pageNum <= pdfDocument.numPages; pageNum++) {
+                const page = await pdfDocument.getPage(pageNum);
+                const textContent = await page.getTextContent();
+
+                // Concatenate the text items into a string
+                const pageText = textContent.items
+                    .map((item: any) => item.str)
+                    .join(' ');
+
+                fullText += pageText + '\n\n';
+                // console.log(`Page ${pageNum} processed.`);
+            }
+
+            return fullText.trim();
+        } catch (error) {
+            console.error('Error reading PDF:', error);
+            throw error;
+        }
+    }
+
+
     const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         if (event.target.files) {
             let theImageAttachments: string[] = []
@@ -185,18 +297,15 @@ function Main() {
                     theImageAttachments.push(base64);
                 } else if (file.type === 'application/pdf') {
                     const extractedText = await readPdfAsText(file); // Extract PDF content here
-                    theTextAttachments.push({ path: file.name, content: extractedText } as TextFile);
+                    theTextAttachments.push({path: file.name, content: extractedText} as TextFile);
                 } else {
                     theOtherAttachments.push(file);
                 }
             }
-    
+
             setImageAttachments(theImageAttachments)
             setTextFileAttachments(theTextAttachments)
             setAttachments(theOtherAttachments);
-            console.log(theImageAttachments);
-            console.log(theTextAttachments);
-            console.log(theOtherAttachments)
         }
     };
 
@@ -226,6 +335,7 @@ function Main() {
             await ConfigController.save()
         }
 
+
         fetchModels().then(); // Call the async function
         const interval = setInterval(async () => {
             await updateConfig();
@@ -235,9 +345,9 @@ function Main() {
     }, [userLanguage, customInstruction]); // Empty dependency array ensures it only runs once
 
     return (
-        
-        <div >
-            <div class="glass-card">
+
+        <div>
+            <div className="glass-card">
                 <h2>Welcome to Smart Office!</h2>
                 <p>Your assistant is ready to help you manage your Outlook tasks efficiently.</p>
             </div>
@@ -259,7 +369,7 @@ function Main() {
                     </option>
                 ))}
             </select><br/>
-            
+
             <label className="form-label">Language: </label>
             <input value={userLanguage} onChange={e => setUserLanguage(e.target.value)}/><br/>
             <button onClick={askGpt} disabled={prompt.length === 0}>Chat</button>

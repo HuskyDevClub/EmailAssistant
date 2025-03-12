@@ -5,4 +5,5 @@ export interface OutlookEmailItem {
     recipient: string;
     receivedTime: Date;
     error: string;
+    attachments: string[];
 }
