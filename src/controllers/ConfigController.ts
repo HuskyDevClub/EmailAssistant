@@ -1,33 +1,23 @@
-import * as path from 'path';
-
-// Define the config interface
-interface Config {
-    userData: {
-        language: string;
-        customInstruction: string;
-    };
-}
-
 export class ConfigController {
 
-    static VALUES: Config = {
+    private static isInitialized: boolean = false;
+
+    private static VALUES: Record<string, Record<string, string>> = {
         userData: {
             language: "English",
-            customInstruction: ""
+            customInstruction: "",
+            ollamaUrl: "http://localhost:11434"
         }
-    } as Config;
+    };
 
-    // Create or ensure the config file exists
-    public static async init(): Promise<void> {
-        try {
-            console.log(await this.getPath());
-            if (await (window as any).electronAPI.existFile(await this.getPath())) {
-                const data = await (window as any).electronAPI.readFile(await this.getPath());
-                this.VALUES = JSON.parse(data) as Config;
-            }
-        } catch (error) {
-            console.error('Error creating config file:', error);
-        }
+    public static async get(k: string): Promise<string> {
+        await this.init();
+        return this.VALUES.userData[k];
+    }
+
+    public static async set(k: string, v: string): Promise<void> {
+        await this.init();
+        this.VALUES.userData[k] = v;
     }
 
     // Save the config file
@@ -40,7 +30,21 @@ export class ConfigController {
         }
     }
 
+    // Create or ensure the config file exists
+    private static async init(): Promise<void> {
+        if (this.isInitialized) return;
+        try {
+            //console.log(await this.getPath());
+            if (await (window as any).electronAPI.existFile(await this.getPath())) {
+                const data = await (window as any).electronAPI.readFile(await this.getPath());
+                this.VALUES = JSON.parse(data);
+            }
+        } catch (error) {
+            console.error('Error creating config file:', error);
+        }
+    }
+
     private static async getPath() {
-        return path.join(await (window as any).electronAPI.getUserDataDir(), 'config.json');
+        return `${await (window as any).electronAPI.getUserDataDir()}/config.json`;
     }
 }

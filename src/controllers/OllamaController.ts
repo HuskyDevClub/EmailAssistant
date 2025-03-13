@@ -1,14 +1,17 @@
 import {Message, Ollama} from "ollama";
+import {ConfigController} from "./ConfigController";
 
-// ollama connection
-const ollama = new Ollama({host: 'http://192.168.122.1:11434'})
 
 export class OllamaController {
+
+    private static OLLAMA_CLIENT: Ollama;
+    private static OLLAMA_URL: string;
+
     // ask gpt the question
     public static async chatAsync(model: string, messages: Message[], setResponse: (response: string) => void): Promise<string> {
         let answer = "";
         try {
-            const response = await ollama.chat({
+            const response = await (await this.get_client()).chat({
                 model: model,
                 messages: messages,
                 stream: true
@@ -32,7 +35,7 @@ export class OllamaController {
     // ask gpt the question
     public static async chat(model: string, messages: Message[]): Promise<string> {
         try {
-            const response = await ollama.chat({
+            const response = await (await this.get_client()).chat({
                 model: model,
                 messages: messages
             })
@@ -51,7 +54,7 @@ export class OllamaController {
     public static async getModels(): Promise<string[]> {
         const result: string[] = [];
         try {
-            const models = (await ollama.list()).models;
+            const models = (await (await this.get_client()).list()).models;
             models.forEach((model) => {
                 result.push(model.name)
             });
@@ -59,5 +62,14 @@ export class OllamaController {
             console.log(e);
         }
         return result;
+    }
+
+    private static async get_client(): Promise<Ollama> {
+        const url: string = await ConfigController.get("ollamaUrl");
+        if (!this.OLLAMA_CLIENT || this.OLLAMA_URL != url) {
+            this.OLLAMA_CLIENT = new Ollama({host: url})
+            this.OLLAMA_URL = url;
+        }
+        return this.OLLAMA_CLIENT;
     }
 }

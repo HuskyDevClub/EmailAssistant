@@ -5,6 +5,8 @@ import {OutlookEmailItem} from "./models/OutlookEmailItem"
 import {TextFile} from "./models/Files"
 import {OllamaController} from "./controllers/OllamaController"
 import {ConfigController} from "./controllers/ConfigController"
+import {EmailViewer} from "./components/EmailViewer"
+import {bufferToFile} from "./functions";
 import * as pdfjsLib from "pdfjs-dist";
 import "pdfjs-dist/build/pdf.worker.entry";
 
@@ -22,70 +24,15 @@ function Main() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [email, setEmail] = useState<OutlookEmailItem>(null);
     const [error, setError] = useState<string | null>(null);
-    const [userLanguage, setUserLanguage] = useState<string>('');
-    const [customInstruction, setCustomInstruction] = useState<string>('');
     const [imageAttachments, setImageAttachments] = useState<string[]>();
     const [textFileAttachments, setTextFileAttachments] = useState<TextFile[]>();
     const [emailImageAttachments, setEmailImageAttachments] = useState<string[]>();
     const [emailTextFileAttachments, setEmailTextFileAttachments] = useState<TextFile[]>();
     const [attachments, setAttachments] = useState<File[]>([]);
-
-    const openNewWindow = () => {
-        const newWin = window.open("", "_blank", "width=400,height=300");
-        if (newWin) {
-            newWin.document.write(`<html lang="en"><head><title id="title">${email.subject}</title></head><body>`);
-            newWin.document.write(`<h2>${email.subject}</h2>`);
-            newWin.document.write(`<p><b>To:</b> ${email.recipient}</p>`);
-            newWin.document.write(`<p><b>Received:</b> ${email.receivedTime.toString()}</p>`);
-            newWin.document.write("<p><b>Body:</b></p>");
-            newWin.document.write(`<pre id="ebody">${email.body}</pre>`);
-            newWin.document.write("</body></html>");
-            newWin.document.close();
-            const closeButton = newWin.document.getElementById("close-btn");
-            if (closeButton) {
-                closeButton.addEventListener("click", () => {
-                    newWin.close();
-                });
-            }
-
-            console.log(emailImageAttachments);
-            console.log(emailTextFileAttachments);
-
-            return () => {
-                if (newWin && !newWin.closed) newWin.close();
-            }
-        }
-    };
-
-    // Helper function to determine MIME type based on file extension
-    function getMimeType(filename: string): string {
-        const mimeTypes: Record<string, string> = {
-            '.pdf': 'application/pdf',
-            '.doc': 'application/msword',
-            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            '.xls': 'application/vnd.ms-excel',
-            '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            '.ppt': 'application/vnd.ms-powerpoint',
-            '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg',
-            '.png': 'image/png',
-            '.gif': 'image/gif',
-            '.txt': 'text/plain',
-            '.csv': 'text/csv',
-            '.html': 'text/html',
-            '.zip': 'application/zip'
-            // Add more as needed
-        };
-
-        return mimeTypes[getFileExtension(filename)] || 'application/octet-stream';
-    }
-
-    function getFileExtension(path: string): string {
-        // Extract the part after the last dot
-        // If there's no dot or the dot is at the beginning of the basename, return empty string
-        return path.slice(((path.lastIndexOf(".") - 2) >>> 0) + 2);
-    }
+    // config
+    const [userLanguage, setUserLanguage] = useState<string>('');
+    const [customInstruction, setCustomInstruction] = useState<string>('');
+    const [ollamaUrl, setOllamaUrl] = useState<string>('');
 
     const fetchSelectedEmail = async () => {
         try {
@@ -100,15 +47,15 @@ function Main() {
                 let theImageAttachments: string[] = []
                 let theTextAttachments: TextFile[] = []
                 for (let p of result.attachments) {
-                    // Add filename property to make it more like a File object
-                    const file = new File([], p.split('/').pop() || 'file', {
-                        type: getMimeType(p)
-                    });
+                    // Read the PDF file into a buffer
+                    const buffer: Buffer = await (window as any).electronAPI.readFileRaw(p);
+                    // Create a File object from the buffer
+                    const file: File = bufferToFile(p, buffer);
                     if (file.type === 'image/webp' || file.type === 'image/png' || file.type === 'image/jpeg' || file.type === 'image/gif') {
                         const base64 = await readWebPAsBase64(file);
                         theImageAttachments.push(base64);
                     } else if (file.type === 'application/pdf') {
-                        const extractedText = await readPdfFromLocalPath(p); // Extract PDF content here
+                        const extractedText = await readPdfAsText(file); // Extract PDF content here
                         theTextAttachments.push({path: file.name, content: extractedText} as TextFile);
                     }
                 }
@@ -248,43 +195,6 @@ function Main() {
         });
     }
 
-    async function readPdfFromLocalPath(pdfPath: string): Promise<string> {
-        try {
-            // Read the PDF file into a buffer
-            const data = await (window as any).electronAPI.readFileRaw(pdfPath);
-
-            // Convert the buffer to Uint8Array which pdfjs requires
-            const uint8Array = new Uint8Array(data);
-
-            // Load the PDF document
-            const loadingTask = pdfjsLib.getDocument(uint8Array);
-            const pdfDocument = await loadingTask.promise;
-
-            // console.log(`PDF loaded. Number of pages: ${pdfDocument.numPages}`);
-
-            // Extract text from all pages
-            let fullText = '';
-
-            for (let pageNum = 1; pageNum <= pdfDocument.numPages; pageNum++) {
-                const page = await pdfDocument.getPage(pageNum);
-                const textContent = await page.getTextContent();
-
-                // Concatenate the text items into a string
-                const pageText = textContent.items
-                    .map((item: any) => item.str)
-                    .join(' ');
-
-                fullText += pageText + '\n\n';
-                // console.log(`Page ${pageNum} processed.`);
-            }
-
-            return fullText.trim();
-        } catch (error) {
-            console.error('Error reading PDF:', error);
-            throw error;
-        }
-    }
-
 
     const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         if (event.target.files) {
@@ -312,14 +222,17 @@ function Main() {
     // Add a separate useEffect for initialization tasks that should only run once
     useEffect(() => {
         async function initialize() {
-            ConfigController.init().then(() => {
-                setUserLanguage(ConfigController.VALUES.userData.language);
-                setCustomInstruction(ConfigController.VALUES.userData.customInstruction)
-            });
+            setUserLanguage(await ConfigController.get("language"));
+            setCustomInstruction(await ConfigController.get("customInstruction"))
+            setOllamaUrl(await ConfigController.get("ollamaUrl"))
         }
 
         initialize().then();
     }, []); // Empty dependency array ensures it only runs once
+
+    function viewEmail() {
+        EmailViewer(email)
+    }
 
     // Fetch the models when the component mounts
     useEffect(() => {
@@ -330,8 +243,9 @@ function Main() {
         }
 
         async function updateConfig(): Promise<void> {
-            ConfigController.VALUES.userData.language = userLanguage;
-            ConfigController.VALUES.userData.customInstruction = customInstruction
+            await ConfigController.set("language", userLanguage);
+            await ConfigController.set("customInstruction", customInstruction);
+            await ConfigController.set("ollamaUrl", ollamaUrl);
             await ConfigController.save()
         }
 
@@ -342,7 +256,7 @@ function Main() {
             await fetchSelectedEmail();
         }, 1000); // Fetch every second
         return () => clearInterval(interval); // Cleanup on unmount
-    }, [userLanguage, customInstruction]); // Empty dependency array ensures it only runs once
+    }, [userLanguage, customInstruction, ollamaUrl]); // Empty dependency array ensures it only runs once
 
     return (
 
@@ -384,11 +298,13 @@ function Main() {
                 <textarea placeholder="Anything you would like your GPT Assistance to know" rows={5} cols={50}
                           value={customInstruction}
                           onChange={e => setCustomInstruction(e.target.value)}/><br/>
+                <label>Ollama Url</label>
+                <textarea value={ollamaUrl} onChange={e => setOllamaUrl(e.target.value)}/><br/>
             </div>
             <div>
                 {error && <p style={{color: "red"}}>{error}</p>}
                 {email && <p>Read Selected Outlook Email: <strong>{email.subject}</strong>
-                    <button onClick={openNewWindow}>View</button>
+                    <button onClick={viewEmail}>View</button>
                 </p>}
             </div>
         </div>
