@@ -87,7 +87,8 @@ function Main() {
 
     // write a reply
     async function replyEmail(): Promise<void> {
-        await chatAboutEmail(`The content of the email:\n'''\n${emailToString(email)}\n'''\nWrite a reply for email.`, `Write a reply for: "${email.subject}"`)
+        await chatAboutEmail(`The content of the email:\n'''\n${emailToString(email)}\n'''\nWrite a reply for email, do not include subject.`, `Write a reply for: "${email.subject}"`)
+        await (window as any).electronAPI.displayEmailReply(messages[messages.length - 1].content)
     }
 
     // write a reply
@@ -254,7 +255,7 @@ function Main() {
         const interval = setInterval(async () => {
             await updateConfig();
             await fetchSelectedEmail();
-        }, 1000); // Fetch every second
+        }, 5000); // Fetch every second
         return () => clearInterval(interval); // Cleanup on unmount
     }, [userLanguage, customInstruction, ollamaUrl]); // Empty dependency array ensures it only runs once
 

@@ -81,6 +81,32 @@ ipcMain.handle("get-selected-email", async () => {
     }
 });
 
+ipcMain.handle("display-email-reply", async (_, replyText: string) => {
+    try {
+        const outlook = new winax.Object("Outlook.Application");
+        const explorer = outlook.ActiveExplorer();
+        const selection = explorer.Selection;
+
+        if (selection.Count === 0) {
+            return {error: "No email selected."};
+        }
+
+        const mailItem = selection.Item(1);
+        const replyMail = mailItem.Reply();
+
+        // Add the reply text
+        replyMail.Body = replyText + '\n\n' + replyMail.Body;
+
+        // Send the reply
+        replyMail.Display();
+
+        return `Reply sent to ${mailItem.SenderName} with subject: ${mailItem.Subject}`;
+    } catch (error) {
+        throw new Error(`Failed to reply to email: ${error.message}`);
+    }
+});
+
+
 ipcMain.handle('get-user-data-dir', async () => {
     return app.getPath("userData")
 })
