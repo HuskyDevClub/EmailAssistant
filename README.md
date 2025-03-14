@@ -169,7 +169,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 ---
 
 ## Credits
-Developed by **Yang Yue (Danny)** and team for the **IMT 574 Project** at the **University of Washington**.
+Developed by *Wynter Lin** and **Yang Yue (Danny)** for the **IMT 574 Project** at the **University of Washington**.
 
 ---
 
